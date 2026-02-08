@@ -1,63 +1,61 @@
-# Stage 1: Base image
+# Stage 1: Base image (tools available for all stages)
 FROM node:22-alpine AS base
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
-# Stage 2: Install dependencies
+# Stage 2: Install dependencies (we copy prisma schema first so postinstall generate can run)
 FROM base AS deps
 COPY package.json package-lock.json* ./
 
-# Copy prisma schema first so 'npm ci' can run the postinstall generate command
+# if you use Prisma and have schema-based postinstall generation, copy the schema
+# (keeps npm ci deterministic if you have postinstall that depends on prisma)
 COPY prisma ./prisma/
 
 RUN npm ci
 
-# Stage 3: Build the application
+# Stage 3: Build the application (uses node_modules from deps to speed up install)
 FROM base AS builder
 WORKDIR /app
+
+# copy node_modules from deps stage
 COPY --from=deps /app/node_modules ./node_modules
+
+# copy project files
 COPY . .
 
-# 1. Define Build Arguments (Required for Next.js build-time injection)
-ARG DATABASE_URL
-ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
-ARG CLERK_SECRET_KEY
-ARG CLERK_WEBHOOK_SECRET
-
-# 2. Make them available as Environment Variables
-ENV DATABASE_URL=$DATABASE_URL
-ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
-ENV CLERK_SECRET_KEY=$CLERK_SECRET_KEY
-ENV CLERK_WEBHOOK_SECRET=$CLERK_WEBHOOK_SECRET
-
-# Generate Prisma Client for the container OS
-RUN npx prisma generate
-
-# Build Next.js (Standalone mode)
+# disable Next.js telemetry in CI builds
 ENV NEXT_TELEMETRY_DISABLED=1
+
+# build the Next.js app (creates .next/standalone for Node-based standalone runtime)
 RUN npm run build
 
-# Stage 4: Production runner
-FROM base AS runner
+# Stage 4: Production image with only what we need
+FROM node:22-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# Security: Do not run as root
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+# Create a non-root user (safer)
+RUN addgroup -g 1001 nodejs || true
+RUN adduser -D -u 1001 -G nodejs nextjs || true
 
-# Copy only the necessary standalone build files
+# Copy built output and public folder from builder
+# .next/standalone will contain server.js and the package.json for the standalone server
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
+# If you need prisma at runtime (and you use Prisma Client), copy the prisma client (client lives in node_modules)
+# Make sure prisma client was generated during build and is present in node_modules in builder stage
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
+
 USER nextjs
 
+# Expose the port your standalone server will use (this repo used 3001 previously)
 EXPOSE 3001
 ENV PORT=3001
 ENV HOSTNAME="0.0.0.0"
 
-# Entry point for standalone Next.js
+# The standalone build contains a server.js at root — start it with node
 CMD ["node", "server.js"]
