@@ -22,9 +22,13 @@ export default function RootLayout({ children }) {
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <ClerkProvider>
-          {children}
-        </ClerkProvider>
+        <ClerkProvider
+  afterSignInUrl="/dashboard"
+  afterSignUpUrl="/dashboard"
+>
+  {children}
+</ClerkProvider>
+
       </body>
     </html>
   );
