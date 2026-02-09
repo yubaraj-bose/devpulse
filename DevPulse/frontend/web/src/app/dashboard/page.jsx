@@ -1,19 +1,17 @@
 "use client";
-import { useClerk } from "@clerk/nextjs";
-import { useRouter } from "next/navigation";
+
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useUser, SignOutButton } from "@clerk/nextjs";
 import CreatePostModal from "./CreatePostModal";
 import ProfileImageModal from "../components/ProfileImageModal";
 import { Github, Plus, Flame, LayoutGrid, Settings } from "lucide-react";
+import RepoSection from "../components/RepoSection";
 
 /**
  * app/dashboard/page.jsx
- * - Dashboard-only navbar (Create button removed from navbar)
- * - Create Post modal is still available from the hero "Create Post" button
- * - Profile dropdown with Change photo and Sign out
- * - Repo cards + Edit modal + feed
+ * Navbar removed (now lives in app/components/NavBar.jsx)
+ * The layout should include NavBarClient so the navbar is visible site-wide except home.
  */
 
 export default function Dashboard() {
@@ -38,22 +36,26 @@ export default function Dashboard() {
     { id: 5, name: "blog-platform", stars: 66, forks: 10 },
   ];
 
+  // redirect if not signed in (client-side protection)
+  // keep hooks order consistent
+  // (router is a hook so declare it before effects)
+  const { } = useUser(); // note: already called above, kept for clarity
+  // redirect effect must be after hooks
+  useEffect(() => {
+    // guard: wait until Clerk loads, then if no user redirect
+    if (isLoaded && !user) {
+      // use window.location.replace so back button behavior is clean
+      window.location.replace("/");
+    }
+  }, [isLoaded, user]);
+
   // fetch posts on mount
   useEffect(() => {
     fetchPosts();
   }, []);
 
   // wait for Clerk to initialize before rendering UI that depends on user
- const router = useRouter();
-
-useEffect(() => {
-  if (isLoaded && !user) {
-    router.replace("/");   // or "/sign-in"
-  }
-}, [isLoaded, user]);
-
-if (!isLoaded || !user) return null;
-
+  if (!isLoaded || !user) return null;
 
   async function fetchPosts() {
     setLoadingPosts(true);
@@ -82,78 +84,6 @@ if (!isLoaded || !user) return null;
 
   return (
     <div className="min-h-screen text-white relative overflow-hidden">
-      {/* ========== NAVBAR (dashboard-only) ========== */}
-      <header className="sticky top-0 z-50 bg-gradient-to-r from-indigo-950/70 via-purple-950/60 to-pink-950/60 backdrop-blur-xl border-b border-white/10">
-        <div className="max-w-7xl mx-auto px-8 py-4 flex items-center justify-between">
-          {/* left side: logo + nav links */}
-          <div className="flex items-center gap-8">
-            <Link href="/" className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-indigo-700 via-purple-700 to-pink-600 flex items-center justify-center text-white font-bold">
-                DP
-              </div>
-              <span className="font-semibold text-white">DevPulse</span>
-            </Link>
-
-            <nav className="hidden md:flex gap-6 text-sm text-zinc-200">
-              <Link href="/" className="hover:text-white">Home</Link>
-              <Link href="/explore" className="hover:text-white">Explore</Link>
-              <Link href="/gallery" className="hover:text-white">Gallery</Link>
-              <Link href="/feed" className="hover:text-white">Feed</Link>
-            </nav>
-          </div>
-
-          {/* right side: profile (Create button removed here) */}
-          <div className="flex items-center gap-4">
-            {/* avatar & dropdown */}
-            <div className="relative">
-              <img
-                src={avatarUrl}
-                onClick={() => setMenuOpen((s) => !s)}
-                className="w-9 h-9 rounded-full cursor-pointer border border-white/10"
-                alt="avatar"
-              />
-
-              {menuOpen && (
-                <div
-                  className="absolute right-0 mt-2 w-44 bg-zinc-900 border border-white/8 rounded-lg py-2"
-                  onMouseLeave={() => setMenuOpen(false)}
-                >
-                  <Link
-                    href={`/u/${user?.username ?? user?.id}`}
-                    className="block px-4 py-2 text-sm hover:bg-white/5"
-                  >
-                    Profile
-                  </Link>
-
-                  <Link href="/settings" className="block px-4 py-2 text-sm hover:bg-white/5">
-                    Settings
-                  </Link>
-
-                  <button
-                    className="block w-full text-left px-4 py-2 text-sm hover:bg-white/5"
-                    onClick={() => {
-                      setOpenProfileImage(true);
-                      setMenuOpen(false);
-                    }}
-                    type="button"
-                  >
-                    Change photo
-                  </button>
-
-                  <div className="border-t border-white/6 mt-2" />
-
-                  <SignOutButton redirectUrl="/sign-in">
-                    <button className="w-full text-left px-4 py-2 text-sm hover:bg-white/5">
-                      Sign out
-                    </button>
-                  </SignOutButton>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </header>
-
       {/* ========== BACKGROUND GLOW ========== */}
       <div className="absolute inset-0 bg-gradient-to-br from-indigo-900/40 via-purple-900/40 to-pink-900/40 blur-3xl opacity-60 pointer-events-none" />
 
@@ -196,44 +126,7 @@ if (!isLoaded || !user) return null;
           </div>
         </section>
 
-        {/* REPO SECTION */}
-        <section>
-          <div className="flex items-center gap-3 mb-6">
-            <LayoutGrid size={20} className="text-purple-400" />
-            <h3 className="text-2xl font-semibold">Your Repositories</h3>
-          </div>
-
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {repos.map((repo) => (
-              <article
-                key={repo.id}
-                className="relative rounded-2xl p-6 bg-white/5 border border-white/10 hover:border-purple-500 transition backdrop-blur-lg group"
-              >
-                <button
-                  onClick={() => {
-                    setSelectedRepo(repo);
-                    setOpenEdit(true);
-                  }}
-                  className="absolute top-3 right-3 text-xs px-3 py-1 rounded-lg bg-white/10 hover:bg-purple-600 transition opacity-0 group-hover:opacity-100 flex items-center gap-1"
-                >
-                  <Settings size={14} />
-                  Edit
-                </button>
-
-                <h4 className="font-semibold mb-2">{repo.name}</h4>
-
-                <p className="text-sm text-zinc-400 mb-4">
-                  Project description goes here
-                </p>
-
-                <div className="flex justify-between text-sm text-zinc-400">
-                  <span>⭐ {repo.stars}</span>
-                  <span>🍴 {repo.forks}</span>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
+       <RepoSection initialRepos={repos} />
 
         {/* FEED SECTION */}
         <section>
