@@ -96,6 +96,7 @@ export default function NavBar() {
     { href: "/", label: "Home" },
     { href: "/explore", label: "Explore" },
     { href: "/feed", label: "Feed" },
+    { href: "/media", label: "Media" },
   ];
 
   const isActive = (href) => {
