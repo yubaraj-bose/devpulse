@@ -9,11 +9,17 @@ import { usePathname } from "next/navigation";
 
 /**
  * NavBar with Notifications and Action-based Dashboard button
+ *
+ * Changes:
+ * - profileOpen: controls avatar/account dropdown only
+ * - mobileOpen: controls hamburger/mobile nav only (contains navItems + dashboard)
+ * - profileRef & mobileRef separate so outside-click handling doesn't close the wrong menu
  */
 
 export default function NavBar() {
   const { isLoaded, user } = useUser();
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false); // avatar/account dropdown
+  const [mobileOpen, setMobileOpen] = useState(false); // hamburger mobile nav
   const [avatarModalOpen, setAvatarModalOpen] = useState(false);
   const pathname = usePathname();
 
@@ -24,7 +30,8 @@ export default function NavBar() {
   const [notifOpen, setNotifOpen] = useState(false);
 
   const notifRef = useRef();
-  const menuRef = useRef();
+  const profileRef = useRef();
+  const mobileRef = useRef();
 
   // helper: fetch notifications
   async function fetchNotifications() {
@@ -72,14 +79,17 @@ export default function NavBar() {
     }
   }
 
-  // click outside to close dropdowns
+  // click outside to close dropdowns (separate refs)
   useEffect(() => {
     function onDocClick(e) {
       if (notifRef.current && !notifRef.current.contains(e.target)) {
         setNotifOpen(false);
       }
-      if (menuRef.current && !menuRef.current.contains(e.target)) {
-        setMenuOpen(false);
+      if (profileRef.current && !profileRef.current.contains(e.target)) {
+        setProfileOpen(false);
+      }
+      if (mobileRef.current && !mobileRef.current.contains(e.target)) {
+        setMobileOpen(false);
       }
     }
     document.addEventListener("mousedown", onDocClick);
@@ -96,6 +106,7 @@ export default function NavBar() {
     { href: "/", label: "Home" },
     { href: "/explore", label: "Explore" },
     { href: "/feed", label: "Feed" },
+    { href: "/media", label: "Media" },
   ];
 
   const isActive = (href) => {
@@ -220,11 +231,16 @@ export default function NavBar() {
               )}
             </div>
 
-            {/* Profile Menu */}
-            <div className="relative" ref={menuRef}>
+            {/* Profile Menu (avatar) */}
+            <div className="relative" ref={profileRef}>
               <button
-                onClick={() => setMenuOpen(!menuOpen)}
+                onClick={() => {
+                  setProfileOpen((s) => !s);
+                  setMobileOpen(false); // ensure mobile nav closed if profile opens
+                }}
                 className="flex items-center gap-2 rounded-full p-0.5 hover:ring-2 hover:ring-white/10 transition-all border border-white/10"
+                aria-expanded={profileOpen}
+                aria-label="Account menu"
               >
                 <img
                   src={avatarUrl}
@@ -233,24 +249,24 @@ export default function NavBar() {
                 />
               </button>
 
-              {menuOpen && (
+              {profileOpen && (
                 <div className="absolute right-0 mt-3 w-56 bg-zinc-900 border border-white/10 rounded-2xl shadow-2xl py-2 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
                   <div className="px-4 py-2 border-b border-white/5 mb-1">
                     <p className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Account</p>
                     <p className="text-sm font-semibold truncate text-white">{user?.fullName || user?.username}</p>
                   </div>
                   
-                  <Link href={`/u/${user?.username ?? user?.id}`} className="flex items-center px-4 py-2.5 text-sm text-zinc-300 hover:bg-white/5 hover:text-white transition-colors" onClick={() => setMenuOpen(false)}>
+                  <Link href={`/u/${user?.username ?? user?.id}`} className="flex items-center px-4 py-2.5 text-sm text-zinc-300 hover:bg-white/5 hover:text-white transition-colors" onClick={() => setProfileOpen(false)}>
                     View Profile
                   </Link>
 
-                  <Link href="/settings" className="flex items-center px-4 py-2.5 text-sm text-zinc-300 hover:bg-white/5 hover:text-white transition-colors" onClick={() => setMenuOpen(false)}>
+                  <Link href="/settings" className="flex items-center px-4 py-2.5 text-sm text-zinc-300 hover:bg-white/5 hover:text-white transition-colors" onClick={() => setProfileOpen(false)}>
                     Settings
                   </Link>
 
                   <button
                     className="w-full text-left px-4 py-2.5 text-sm text-zinc-300 hover:bg-white/5 hover:text-white transition-colors"
-                    onClick={() => { setAvatarModalOpen(true); setMenuOpen(false); }}
+                    onClick={() => { setAvatarModalOpen(true); setProfileOpen(false); }}
                   >
                     Change Picture
                   </button>
@@ -266,9 +282,53 @@ export default function NavBar() {
               )}
             </div>
 
-            <button className="md:hidden p-2 text-zinc-400 hover:text-white transition-colors">
-              <Menu size={20} />
-            </button>
+            {/* Mobile hamburger - only toggles mobile nav (site nav + dashboard) */}
+            <div className="relative md:hidden" ref={mobileRef}>
+              <button
+                aria-label="Open site menu"
+                aria-expanded={mobileOpen}
+                onClick={() => {
+                  setMobileOpen((s) => !s);
+                  setProfileOpen(false); // ensure profile closed when mobile opens
+                }}
+                className="p-2 text-zinc-400 hover:text-white transition-colors"
+              >
+                <Menu size={20} />
+              </button>
+
+              {/* Mobile nav - only navItems + dashboard (no profile links) */}
+              {mobileOpen && (
+                <div className="absolute right-0 top-full mt-2 w-64 bg-zinc-900 border border-white/10 rounded-2xl shadow-2xl py-2 overflow-hidden animate-in fade-in duration-200">
+                  <nav className="flex flex-col">
+                    {navItems.map((item) => (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        onClick={() => setMobileOpen(false)}
+                        className={`px-4 py-2 text-sm ${isActive(item.href) ? activeCls : "text-zinc-300 hover:bg-white/5 hover:text-white"} transition-colors`}
+                      >
+                        {item.label}
+                      </Link>
+                    ))}
+
+                    <div className="px-4 py-2 border-t border-white/5">
+                      {pathname !== "/dashboard" ? (
+                        <Link
+                          href="/dashboard"
+                          onClick={() => setMobileOpen(false)}
+                          className="flex items-center gap-2 px-3 py-2 rounded-full bg-white/5 hover:bg-white/10 text-white text-sm font-medium transition-all"
+                        >
+                          <LayoutDashboard size={15} className="text-indigo-400" />
+                          Dashboard
+                        </Link>
+                      ) : (
+                        <Link href="/dashboard" onClick={() => setMobileOpen(false)} className="text-zinc-300 text-sm">Dashboard</Link>
+                      )}
+                    </div>
+                  </nav>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </header>
