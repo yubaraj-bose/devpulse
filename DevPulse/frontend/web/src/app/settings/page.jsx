@@ -2,7 +2,7 @@
 
 import { useUser, SignOutButton } from "@clerk/nextjs";
 import { useEffect, useState } from "react";
-import { useTheme } from "@/context/ThemeContext"; // Import the global theme hook
+import { useTheme } from "@/context/ThemeContext";
 import {
   User,
   Bell,
@@ -14,9 +14,6 @@ import {
   Link as LinkIcon
 } from "lucide-react";
 
-/* ==============================
-   Local Storage Key
-============================== */
 const STORAGE_KEY = "devpulse_settings_v1";
 
 /* ==============================
@@ -79,7 +76,7 @@ function Toggle({ label, value, onChange }) {
 
 export default function SettingsPage() {
   const { user } = useUser();
-  const { isDarkMode, setIsDarkMode } = useTheme(); // Use global theme state
+  const { isDarkMode, setIsDarkMode } = useTheme();
 
   const [settings, setSettings] = useState({
     displayName: "",
@@ -91,7 +88,7 @@ export default function SettingsPage() {
       twitter: "",
     },
     preferences: {
-      darkMode: isDarkMode, // Initialize from context
+      darkMode: true,
       autoplayVideos: true,
       showTrending: true,
     },
@@ -108,7 +105,7 @@ export default function SettingsPage() {
 
   const [saved, setSaved] = useState(false);
 
-  // Keep local settings in sync if theme is toggled from Navbar
+  // Sync theme to settings state
   useEffect(() => {
     setSettings(prev => ({
       ...prev,
@@ -116,15 +113,28 @@ export default function SettingsPage() {
     }));
   }, [isDarkMode]);
 
-  /* Load saved */
+  /* Load saved with Deep Merge to prevent "undefined" errors */
   useEffect(() => {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw);
-      setSettings(parsed);
-      // Ensure global theme matches what was loaded from storage
-      if (parsed.preferences?.darkMode !== undefined) {
-        setIsDarkMode(parsed.preferences.darkMode);
+      try {
+        const parsed = JSON.parse(raw);
+        // FIX: Deep merge ensures that if an object like 'socials' is missing 
+        // in localStorage, it uses the default one from state instead of crashing.
+        setSettings(prev => ({
+          ...prev,
+          ...parsed,
+          socials: { ...prev.socials, ...(parsed.socials || {}) },
+          preferences: { ...prev.preferences, ...(parsed.preferences || {}) },
+          notifications: { ...prev.notifications, ...(parsed.notifications || {}) },
+          privacy: { ...prev.privacy, ...(parsed.privacy || {}) },
+        }));
+
+        if (parsed.preferences?.darkMode !== undefined) {
+          setIsDarkMode(parsed.preferences.darkMode);
+        }
+      } catch (e) {
+        console.error("Failed to parse settings", e);
       }
     }
   }, [setIsDarkMode]);
@@ -150,7 +160,6 @@ export default function SettingsPage() {
           </p>
         </header>
 
-        {/* ================= Profile ================= */}
         <Section icon={User} title="Profile">
           <div className="grid md:grid-cols-2 gap-8">
             <Input
@@ -185,10 +194,10 @@ export default function SettingsPage() {
           </div>
         </Section>
 
-        {/* ================= Social Links ================= */}
+        {/* FIX: Use optional chaining and default empty objects for all iterations */}
         <Section icon={LinkIcon} title="Social Links">
           <div className="grid md:grid-cols-3 gap-6">
-            {Object.keys(settings.socials).map((k) => (
+            {Object.keys(settings?.socials || {}).map((k) => (
               <Input
                 key={k}
                 label={k}
@@ -208,10 +217,9 @@ export default function SettingsPage() {
           </div>
         </Section>
 
-        {/* ================= Preferences ================= */}
         <Section icon={Palette} title="Appearance">
           <div className="space-y-1">
-            {Object.entries(settings.preferences).map(([k, v]) => (
+            {Object.entries(settings?.preferences || {}).map(([k, v]) => (
               <Toggle
                 key={k}
                 label={k}
@@ -221,7 +229,6 @@ export default function SettingsPage() {
                     ...settings,
                     preferences: { ...settings.preferences, [k]: val },
                   });
-                  // Specifically update global theme if this is the darkMode toggle
                   if (k === "darkMode") {
                     setIsDarkMode(val);
                   }
@@ -231,10 +238,9 @@ export default function SettingsPage() {
           </div>
         </Section>
 
-        {/* ================= Notifications ================= */}
         <Section icon={Bell} title="Notifications">
           <div className="space-y-1">
-            {Object.entries(settings.notifications).map(([k, v]) => (
+            {Object.entries(settings?.notifications || {}).map(([k, v]) => (
               <Toggle
                 key={k}
                 label={`Notify on ${k}`}
@@ -250,10 +256,9 @@ export default function SettingsPage() {
           </div>
         </Section>
 
-        {/* ================= Privacy ================= */}
         <Section icon={Shield} title="Privacy">
           <div className="space-y-1">
-            {Object.entries(settings.privacy).map(([k, v]) => (
+            {Object.entries(settings?.privacy || {}).map(([k, v]) => (
               <Toggle
                 key={k}
                 label={k}
@@ -269,7 +274,6 @@ export default function SettingsPage() {
           </div>
         </Section>
 
-        {/* ================= Save Button ================= */}
         <div className="flex justify-end pt-4">
           <button
             onClick={save}
@@ -280,7 +284,6 @@ export default function SettingsPage() {
           </button>
         </div>
 
-        {/* ================= Danger Zone ================= */}
         <Section icon={Trash2} title="Danger Zone">
           <div className="space-y-4">
             <SignOutButton>
