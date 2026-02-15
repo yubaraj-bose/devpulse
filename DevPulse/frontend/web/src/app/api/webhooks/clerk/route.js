@@ -1,6 +1,6 @@
 import { Webhook } from 'svix'
 import { headers } from 'next/headers'
-import prisma from '@/lib/prisma'
+import prisma  from '@/lib/prisma' // Updated to match your named export
 
 export async function POST(req) {
   const WEBHOOK_SECRET = process.env.CLERK_WEBHOOK_SECRET
@@ -9,7 +9,7 @@ export async function POST(req) {
     throw new Error('Please add CLERK_WEBHOOK_SECRET from Clerk Dashboard to .env')
   }
 
-  // 1. Get the headers (Next.js 16: headers() is async)
+  // 1. Get the headers
   const headerPayload = await headers();
   const svix_id = headerPayload.get("svix-id");
   const svix_timestamp = headerPayload.get("svix-timestamp");
@@ -19,7 +19,7 @@ export async function POST(req) {
     return new Response('Error occured -- no svix headers', { status: 400 })
   }
 
-  // 2. Get the RAW body as text
+  // 2. Get the RAW body
   const payload = await req.text();
   const wh = new Webhook(WEBHOOK_SECRET);
 
@@ -40,26 +40,26 @@ export async function POST(req) {
   const eventType = evt.type;
   
   if (eventType === 'user.created') {
-    const { id, email_addresses, username, image_url } = evt.data;
+    const { id, first_name, last_name, username, image_url } = evt.data;
 
     try {
-      // 4. Sync to Neon via Prisma with schema-matching fields
+      // 4. Sync to NeonDB matching your "Master Schema"
       await prisma.user.create({
         data: {
-          clerkId: id,
-          // Safely get email or empty string if missing
-          email: email_addresses?.[0]?.email_address || "", 
-          // Ensure username is never null to satisfy @unique
-          username: username || `user_${id.slice(-6)}`, 
-          profilePhoto: image_url || "",
-          totalUpvoteCnt: 0, // Matches your schema name
+          id: id, // Clerk ID maps to @id field
+          username: username || `user_${id.slice(-6)}`,
+          displayName: `${first_name || ""} ${last_name || ""}`.trim() || "New Dev",
+          avatar: image_url || "", // Matches schema field name
+          // Initialize related records immediately
+          socials: { create: {} },
+          settings: { create: {} }
         },
       })
-      console.log(`User ${id} successfully synced to database.`);
+      
+      console.log(`User ${id} successfully synced to NeonDB.`);
       return new Response('User created', { status: 200 });
     } catch (dbError) {
       console.error('Prisma Error:', dbError);
-      // This will show exactly what field failed in your Vercel logs
       return new Response('Database Error', { status: 500 });
     }
   }
