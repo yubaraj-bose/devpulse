@@ -1,8 +1,10 @@
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ClerkProvider } from "@clerk/nextjs";
+import { auth } from "@clerk/nextjs/server"; // Import auth for server-side ID
 import NavBarClient from "./components/NavBarClient";
-import { ThemeProvider } from "@/context/ThemeContext"; // 1. Import the Provider
+import { ThemeProvider } from "@/context/ThemeContext";
+import { getUserProfile } from "@/lib/actions/user.actions"; // Import your DB fetch action
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -19,12 +21,16 @@ export const metadata = {
   description: "Showcase your projects with a pulse.",
 };
 
-export default function RootLayout({ children }) {
+export default async function RootLayout({ children }) {
+  // 1. Fetch the logged-in user's ID from Clerk
+  const { userId } = await auth();
+
+  // 2. Fetch the user's custom data (including Cloudinary avatar) from NeonDB
+  const dbUser = userId ? await getUserProfile(userId) : null;
+
   return (
     <html lang="en" suppressHydrationWarning> 
-      {/* 2. suppressHydrationWarning prevents mismatched server/client warning for themes */}
       <head>
-        {/* 3. The "Flash Guard" Script: This checks the theme before the page even paints */}
         <script
           dangerouslySetInnerHTML={{
             __html: `
@@ -45,11 +51,9 @@ export default function RootLayout({ children }) {
         className={`${geistSans.variable} ${geistMono.variable} antialiased transition-colors duration-300`}
       >
         <ThemeProvider>
-          <ClerkProvider
-            afterSignInUrl="/dashboard"
-            afterSignUpUrl="/dashboard"
-          >
-            <NavBarClient />
+          <ClerkProvider>
+            {/* 3. Pass dbUser to NavBarClient so it uses the Cloudinary link */}
+            <NavBarClient dbUser={dbUser} />
             {children}
           </ClerkProvider>
         </ThemeProvider>

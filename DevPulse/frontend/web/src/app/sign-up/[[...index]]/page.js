@@ -119,7 +119,7 @@ export default function SignUpPage() {
             <SignUp
               path="/sign-up"
               signInUrl="/sign-in"
-              forceRedirectUrl="/dashboard"
+              fallbackRedirectUrl="/post-signup"
               appearance={{
                 elements: {
                   card: "bg-transparent shadow-none border-0 rounded-2xl p-8",
@@ -137,7 +137,7 @@ export default function SignUpPage() {
                     "bg-[var(--nav-hover-bg)] border-[var(--border-muted)] text-[var(--nav-text-active)] hover:bg-[var(--nav-hover-bg-heavy)] transition-all py-3 rounded-xl",
                   socialButtonsBlockButtonText: "text-[var(--nav-text-active)] font-bold",
                   dividerLine: "bg-[var(--border-muted)]",
-                  dividerText: "text-[var(--nav-text-muted)]",
+                  dividerText: "bg-[var(--nav-text-muted)]",
                   footerActionText: "text-[var(--nav-text-muted)]",
                   headerTitle: "hidden",
                   headerSubtitle: "hidden",

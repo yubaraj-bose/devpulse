@@ -1,3 +1,6 @@
+// DevPulse Master Schema - Prisma 7 Optimized (revised)
+// Connection URL is now managed in prisma.config.ts
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -6,24 +9,275 @@ datasource db {
   provider = "postgresql"
 }
 
-model User {
-  id              String @id @default(cuid())
-  clerkId         String @unique
-  username        String @unique
-  email           String @unique
-  profilePhoto    String?
-  githubLink      String?
-  totalUpvoteCnt  Int @default(0)
-  createdAt       DateTime @default(now())
+// ==========================================
+// 1. USER & IDENTITY
+// ==========================================
 
-  projects        Project[]
+model User {
+  id          String   @id // Clerk User ID
+  email       String   @unique
+  username    String   @unique
+  displayName String
+  avatar      String?
+  bio         String?  @db.Text
+  website     String?
+  joinedAt    DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Profile Content Relations
+  socials             SocialLinks?
+  settings            Settings?
+  sections            SectionItem[]
+  repositories        Repository[]
+  posts               Post[]
+  comments            Comment[]
+  notifications       Notification[] // notifications received (recipient)
+  issuedNotifications Notification[] @relation("issuedNotifications")
+  starredPosts        Star[]
+  trophies            Trophy[]
+
+  // Voting & Social Relations
+  postVotes    PostVote[]
+  commentVotes CommentVote[]
+  followers    Follow[]      @relation("following")
+  following    Follow[]      @relation("follower")
+
+  // Cached Stats for UI Performance
+  postCount Int @default(0)
+  viewCount Int @default(0)
+  starCount Int @default(0)
 }
 
-model Project {
-  id          String @id @default(cuid())
-  projectName String
-  githubLink  String
-  description String
+
+// ==========================================
+// 2. COMMUNITY & FEED
+// ==========================================
+
+model Post {
+  id        String     @id @default(cuid())
+  title     String?
+  text      String?    @db.Text
+  mediaUrl  String?
+  mediaType MediaType?
+
+  // Aggregate Score
+  upvotes   Int @default(0)
+  downvotes Int @default(0)
+
+  // Relations
+  authorId String
+  author   User       @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  comments Comment[]
+  votes    PostVote[]
+  stars    Star[]
+  trophies Trophy[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([authorId])
+  @@index([createdAt, upvotes])
+  @@index([authorId, createdAt])
+}
+
+model Trophy {
+  userId String
+  postId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@id([userId, postId])
+}
+
+model Star {
+  userId String
+  postId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@id([userId, postId]) // A user can only star a post once
+}
+
+model Comment {
+  id   String @id @default(cuid())
+  text String @db.Text
+
+  // Aggregate Score
+  upvotes   Int @default(0)
+  downvotes Int @default(0)
+
+  // Relations
+  postId   String
+  post     Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  authorId String
+  author   User          @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  votes    CommentVote[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([postId])
+  @@index([authorId])
+}
+
+// ==========================================
+// 3. PORTFOLIO & GITHUB
+// ==========================================
+
+model Repository {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // GitHub Meta
+  repoId      Int     @unique
+  name        String
+  description String? @db.Text
+  stars       Int     @default(0)
+  forks       Int     @default(0)
+  url         String
+
+  // Display Settings (from RepoSection.jsx)
+  showStars       Boolean @default(true)
+  showForks       Boolean @default(true)
+  showDescription Boolean @default(true)
+  pinToTop        Boolean @default(false)
+  hideRepo        Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// ==========================================
+// 4. SOCIAL INFRASTRUCTURE
+// ==========================================
+
+model Notification {
+  id     String @id @default(cuid())
+  userId String // The recipient
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Data from your UI
+  type      NotificationType
+  issuerId  String? // optional if system notifications exist
+  issuer    User?            @relation("issuedNotifications", fields: [issuerId], references: [id], onDelete: SetNull)
+  message   String           @db.Text
+  postTitle String? // Optional: for "commented on..."
+
+  read Boolean @default(false)
+  link String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model SocialLinks {
+  id        String  @id @default(cuid())
+  userId    String  @unique
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  github    String?
+  youtube   String?
+  linkedin  String?
+  instagram String?
+}
+
+model SectionItem {
+  id          String      @id @default(cuid())
   userId      String
-  user        User   @relation(fields: [userId], references: [clerkId])
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        SectionType
+  title       String
+  description String      @db.Text
+  link        String?
+  tags        String[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+model Follow {
+  followerId  String
+  followingId String
+  follower    User   @relation("follower", fields: [followerId], references: [id])
+  following   User   @relation("following", fields: [followingId], references: [id])
+
+  @@id([followerId, followingId])
+}
+
+// ==========================================
+// 5. VOTING LOGIC
+// ==========================================
+
+model PostVote {
+  userId String
+  postId String
+  type   VoteType
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post   Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@id([userId, postId])
+}
+
+model CommentVote {
+  userId    String
+  commentId String
+  type      VoteType
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  comment   Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@id([userId, commentId])
+}
+
+model Settings {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Appearance (from your Palette section)
+  darkMode       Boolean @default(true)
+  autoplayVideos Boolean @default(true)
+  showTrending   Boolean @default(true)
+
+  // Notification Toggles (from your Bell section)
+  notifyLikes    Boolean @default(true)
+  notifyComments Boolean @default(true)
+  notifyFollows  Boolean @default(true)
+
+  // Privacy (from your Shield section)
+  privateProfile Boolean @default(false)
+  hideEmail      Boolean @default(true)
+
+  updatedAt DateTime @updatedAt
+}
+
+// ==========================================
+// 6. ENUMS
+// ==========================================
+
+enum SectionType {
+  OPEN_SOURCE
+  PROJECT
+  TUTORIAL
+  ARTICLE
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+}
+
+enum VoteType {
+  UPVOTE
+  DOWNVOTE
+}
+
+enum NotificationType {
+  COMMENT
+  UPVOTE
+  DOWNVOTE
+  FOLLOW
+  STAR
+  TROPHY
 }

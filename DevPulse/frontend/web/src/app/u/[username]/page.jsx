@@ -1,8 +1,9 @@
 "use client";
-
+import { uploadImageAction } from "@/lib/actions/user.actions";
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { useUser } from "@clerk/nextjs";
+import { useSearchParams, useRouter } from "next/navigation";
 import {
   Edit2,
   ExternalLink,
@@ -17,9 +18,16 @@ import {
   UserPlus,
   UserCheck
 } from "lucide-react";
+import { 
+  getUserProfile, 
+  updateProfile, 
+  saveSectionItem, 
+  deleteSectionItemAction 
+} from "@/lib/actions/user.actions";
+
 
 /**
- * DevPulse Profile Page - Themed with CSS Variables
+ * DevPulse Profile Page - Fully Integrated with NeonDB
  */
 
 const THEME_BG =
@@ -48,7 +56,7 @@ function IconForSocial({ provider, className = "" }) {
 function makeDefaultProfile(clerkUser, usernameParam) {
   return {
     ownerId: clerkUser?.id || "",
-    username: usernameParam || clerkUser?.username || clerkUser?.id || "unknown",
+    username: usernameParam || "new_user",
     displayName: clerkUser?.fullName || clerkUser?.username || "New Dev",
     avatar: clerkUser?.imageUrl || `https://ui-avatars.com/api/?name=${usernameParam}`,
     bio: "",
@@ -72,12 +80,12 @@ function makeDefaultProfile(clerkUser, usernameParam) {
       tutorials: [],
       articles: [],
     },
-    joinedAt: clerkUser ? new Date().toISOString() : new Date().toISOString(),
+    joinedAt: new Date().toISOString(),
   };
 }
 
 /* ---------------------------
-   Hoisted sub-components
+   UI Sub-components
    --------------------------- */
 
 function SectionList({
@@ -155,9 +163,44 @@ function SectionList({
   );
 }
 
+
+
 function EditProfileModal({ open, onClose, profile, saveProfile }) {
-  const [local, setLocal] = useState(profile);
-  useEffect(() => { setLocal(profile); }, [profile, open]);
+  // ensure local is always an object to avoid null controlled input values
+  const [local, setLocal] = useState(profile || {});
+  const [isUploading, setIsUploading] = useState(false);
+  
+  useEffect(() => { 
+    setLocal(profile || {}); 
+  }, [profile, open]);
+
+  // Handle file selection and upload
+  const handleImageUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Optional: Basic size check (e.g., 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      alert("File is too large. Please select an image under 5MB.");
+      return;
+    }
+
+    setIsUploading(true);
+    const reader = new FileReader();
+
+    reader.onloadend = async () => {
+      try {
+        const imageUrl = await uploadImageAction(reader.result);
+        setLocal(prev => ({ ...prev, avatar: imageUrl }));
+      } catch (err) {
+        alert("Upload failed. Please try again.");
+      } finally {
+        setIsUploading(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   if (!open) return null;
 
   return (
@@ -170,34 +213,73 @@ function EditProfileModal({ open, onClose, profile, saveProfile }) {
         </div>
         
         <div className="p-8 overflow-y-auto space-y-8">
+          {/* Identity Section */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-[var(--nav-text-muted)] uppercase tracking-[0.2em]">Display name</label>
-              <input value={local.displayName} onChange={(e) => setLocal({ ...local, displayName: e.target.value })} className="w-full rounded-2xl px-5 py-4 bg-[var(--nav-hover-bg)] border border-[var(--border-muted)] text-[var(--nav-text-active)] focus:border-indigo-500 outline-none transition-all" />
+              <label className="text-[10px] font-black text-[var(--nav-text-muted)] uppercase tracking-[0.2em]">User ID (Read Only)</label>
+              <input 
+                value={local?.ownerId ?? local?.id ?? ""} 
+                disabled 
+                className="w-full rounded-2xl px-5 py-4 bg-[var(--nav-hover-bg)] border border-[var(--border-muted)] text-[var(--nav-text-muted)] opacity-60 cursor-not-allowed outline-none font-mono text-xs" 
+              />
             </div>
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-[var(--nav-text-muted)] uppercase tracking-[0.2em]">Avatar URL</label>
-              <input value={local.avatar} onChange={(e) => setLocal({ ...local, avatar: e.target.value })} className="w-full rounded-2xl px-5 py-4 bg-[var(--nav-hover-bg)] border border-[var(--border-muted)] text-[var(--nav-text-active)] focus:border-indigo-500 outline-none transition-all" />
+              <label className="text-[10px] font-black text-[var(--nav-text-muted)] uppercase tracking-[0.2em]">Username</label>
+              <input 
+                value={local?.username ?? ""} 
+                onChange={(e) => setLocal({ ...local, username: (e.target.value || "").toLowerCase().replace(/\s+/g, '') })} 
+                placeholder="yubarajbose"
+                className="w-full rounded-2xl px-5 py-4 bg-[var(--nav-hover-bg)] border border-[var(--border-muted)] text-[var(--nav-text-active)] focus:border-indigo-500 outline-none transition-all font-bold" 
+              />
             </div>
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-[var(--nav-text-muted)] uppercase tracking-[0.2em]">Bio</label>
-            <textarea value={local.bio} onChange={(e) => setLocal({ ...local, bio: e.target.value })} rows={3} className="w-full rounded-2xl px-5 py-4 bg-[var(--nav-hover-bg)] border border-[var(--border-muted)] text-[var(--nav-text-active)] focus:border-indigo-500 outline-none transition-all resize-none" placeholder="Tell your story..." />
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-[var(--nav-text-muted)] uppercase tracking-[0.2em]">Website</label>
-            <input value={local.website} onChange={(e) => setLocal({ ...local, website: e.target.value })} className="w-full rounded-2xl px-5 py-4 bg-[var(--nav-hover-bg)] border border-[var(--border-muted)] text-[var(--nav-text-active)] focus:border-indigo-500 outline-none transition-all" placeholder="https://yourportfolio.com" />
           </div>
 
-          <div className="grid grid-cols-2 gap-6">
-             <div className="space-y-2">
-              <label className="text-[10px] font-black text-[var(--nav-text-muted)] uppercase tracking-[0.2em]">Followers (Seed)</label>
-              <input type="number" value={local.stats.followers} onChange={(e) => setLocal({ ...local, stats: { ...local.stats, followers: parseInt(e.target.value) || 0 } })} className="w-full rounded-2xl px-5 py-4 bg-[var(--nav-hover-bg)] border border-[var(--border-muted)] text-[var(--nav-text-active)] focus:border-indigo-500 outline-none" />
-            </div>
+          {/* New Cloudinary Image Section */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-[var(--nav-text-muted)] uppercase tracking-[0.2em]">Following (Seed)</label>
-              <input type="number" value={local.stats.following} onChange={(e) => setLocal({ ...local, stats: { ...local.stats, following: parseInt(e.target.value) || 0 } })} className="w-full rounded-2xl px-5 py-4 bg-[var(--nav-hover-bg)] border border-[var(--border-muted)] text-[var(--nav-text-active)] focus:border-indigo-500 outline-none" />
+              <label className="text-[10px] font-black text-[var(--nav-text-muted)] uppercase tracking-[0.2em]">Display name</label>
+              <input value={local?.displayName ?? ""} onChange={(e) => setLocal({ ...local, displayName: e.target.value })} className="w-full rounded-2xl px-5 py-4 bg-[var(--nav-hover-bg)] border border-[var(--border-muted)] text-[var(--nav-text-active)] focus:border-indigo-500 outline-none transition-all" />
             </div>
+            
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-[var(--nav-text-muted)] uppercase tracking-[0.2em]">Profile Picture</label>
+              <div className="flex items-center gap-4 bg-[var(--nav-hover-bg)] p-3 rounded-2xl border border-[var(--border-muted)]">
+                <div className="relative shrink-0">
+                   <img src={local?.avatar ?? ""} alt="Avatar Preview" className={`w-14 h-14 rounded-xl object-cover border border-[var(--border-color)] ${isUploading ? 'opacity-30' : 'opacity-100'}`} />
+                   {isUploading && (
+                     <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                     </div>
+                   )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <input 
+                    type="file" 
+                    id="avatar-upload"
+                    accept="image/*"
+                    onChange={handleImageUpload}
+                    disabled={isUploading}
+                    className="hidden" 
+                  />
+                  <label 
+                    htmlFor="avatar-upload"
+                    className="inline-block px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-black uppercase tracking-wider cursor-pointer transition-all active:scale-95 disabled:opacity-50"
+                  >
+                    {isUploading ? "Uploading..." : "Change Image"}
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-[var(--nav-text-muted)] uppercase tracking-[0.2em]">Bio</label>
+            <textarea value={local?.bio ?? ""} onChange={(e) => setLocal({ ...local, bio: e.target.value })} rows={3} className="w-full rounded-2xl px-5 py-4 bg-[var(--nav-hover-bg)] border border-[var(--border-muted)] text-[var(--nav-text-active)] focus:border-indigo-500 outline-none transition-all resize-none" placeholder="Tell your story..." />
+          </div>
+          
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-[var(--nav-text-muted)] uppercase tracking-[0.2em]">Website</label>
+            <input value={local?.website ?? ""} onChange={(e) => setLocal({ ...local, website: e.target.value })} className="w-full rounded-2xl px-5 py-4 bg-[var(--nav-hover-bg)] border border-[var(--border-muted)] text-[var(--nav-text-active)] focus:border-indigo-500 outline-none transition-all" placeholder="https://yourportfolio.com" />
           </div>
 
           <div className="space-y-4">
@@ -208,7 +290,12 @@ function EditProfileModal({ open, onClose, profile, saveProfile }) {
                   <div className="absolute left-5 top-1/2 -translate-y-1/2 text-[var(--nav-text-muted)]">
                       <IconForSocial provider={s} />
                   </div>
-                  <input value={local.socials[s]} onChange={(e) => setLocal({ ...local, socials: { ...local.socials, [s]: e.target.value } })} placeholder={`${s.charAt(0).toUpperCase() + s.slice(1)} URL`} className="w-full rounded-2xl pl-14 pr-5 py-4 bg-[var(--nav-hover-bg)] border border-[var(--border-muted)] text-sm text-[var(--nav-text-active)] focus:border-indigo-500 outline-none transition-all" />
+                  <input 
+                    value={local?.socials?.[s] ?? ""} 
+                    onChange={(e) => setLocal(prev => ({ ...prev, socials: { ...(prev?.socials || {}), [s]: e.target.value } }))} 
+                    placeholder={`${s.charAt(0).toUpperCase() + s.slice(1)} URL`} 
+                    className="w-full rounded-2xl pl-14 pr-5 py-4 bg-[var(--nav-hover-bg)] border border-[var(--border-muted)] text-sm text-[var(--nav-text-active)] focus:border-indigo-500 outline-none transition-all" 
+                  />
                 </div>
               ))}
             </div>
@@ -217,7 +304,13 @@ function EditProfileModal({ open, onClose, profile, saveProfile }) {
 
         <div className="p-8 border-t border-[var(--border-muted)] flex justify-end gap-4 bg-[var(--nav-hover-bg)]">
           <button onClick={onClose} className="px-6 py-3 rounded-2xl hover:bg-[var(--nav-hover-bg-heavy)] text-[var(--nav-text-active)] font-bold transition-all">Cancel</button>
-          <button onClick={() => { saveProfile(local, true); onClose(); }} className="px-10 py-3 rounded-2xl bg-indigo-600 text-white font-black shadow-lg shadow-indigo-500/20 active:scale-95 transition-all">Update Profile</button>
+          <button 
+            onClick={() => { saveProfile(local, true); onClose(); }} 
+            disabled={isUploading}
+            className="px-10 py-3 rounded-2xl bg-indigo-600 text-white font-black shadow-lg shadow-indigo-500/20 active:scale-95 transition-all disabled:opacity-50"
+          >
+            Update Profile
+          </button>
         </div>
       </div>
     </div>
@@ -258,26 +351,18 @@ function SectionEditorModal({
 }
 
 /* ---------------------------
-   Main page component
+   Main Page Component
    --------------------------- */
 
 export default function UserProfilePage() {
   const params = useParams();
   const routeUsername = params?.username || "unknown";
-
   const { user: clerkUser, isLoaded } = useUser();
-
-  const storageKey = useMemo(
-    () => `devpulse_profile_${routeUsername}`,
-    [routeUsername]
-  );
-
-  const [profile, setProfile] = useState(() =>
-    makeDefaultProfile(clerkUser || {}, routeUsername)
-  );
-
-  const [loading, setLoading] = useState(true);
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const [editOpen, setEditOpen] = useState(false);
+  const [profile, setProfile] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [editingSection, setEditingSection] = useState(null);
   const [isFollowing, setIsFollowing] = useState(false);
   
@@ -289,58 +374,79 @@ export default function UserProfilePage() {
   });
 
   const isOwner = useMemo(() => {
-    if (!isLoaded || !clerkUser) return false;
-    return profile.username === clerkUser.username || profile.username === clerkUser.id;
-  }, [isLoaded, clerkUser, profile.username]);
+    if (!isLoaded || !clerkUser || !profile) return false;
+    return profile.username === clerkUser.username || profile.ownerId === clerkUser.id;
+  }, [isLoaded, clerkUser, profile]);
+useEffect(() => {
+    // 1. Check if the URL has ?edit=true
+    const editRequested = searchParams.get('edit') === 'true';
 
-  useEffect(() => {
-    const raw = localStorage.getItem(storageKey);
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        setProfile((p) => ({ ...p, ...parsed }));
-      } catch { /* ignore */ }
-    } else {
-      if (clerkUser) {
-        const seeded = makeDefaultProfile(clerkUser, routeUsername);
-        setProfile((p) => ({ ...p, ...seeded }));
-      }
+    // 2. Only open if the user is the owner and data has finished loading
+    if (editRequested && isOwner && !loading) {
+      setEditOpen(true);
+
+      // 3. Clean the URL (remove ?edit=true) so it doesn't reopen on refresh
+      const cleanPath = window.location.pathname;
+      router.replace(cleanPath, { scroll: false });
     }
-    setLoading(false);
-  }, [storageKey, routeUsername, clerkUser?.id]);
+  }, [searchParams, isOwner, loading, router]);
+  // Load from database
+  useEffect(() => {
+    async function loadData() {
+      setLoading(true);
+      const dbData = await getUserProfile(routeUsername);
+      if (dbData) {
+        setProfile(dbData);
+      } else if (isLoaded && clerkUser && routeUsername === (clerkUser.username || clerkUser.id)) {
+        setProfile(makeDefaultProfile(clerkUser, routeUsername));
+      }
+      setLoading(false);
+    }
+    loadData();
+  }, [routeUsername, isLoaded, clerkUser]);
 
   async function saveProfile(newProfile, showToast = false) {
-    setProfile(newProfile);
-    localStorage.setItem(storageKey, JSON.stringify(newProfile));
+  if (!isOwner) return;
 
-    try {
-      await fetch("/api/profile", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newProfile),
-      });
-    } catch (e) { /* non-blocking */ }
+  try {
+    // 1. Call the server action and wait for success
+    const response = await updateProfile(clerkUser.id, {
+      displayName: newProfile.displayName,
+      avatar: newProfile.avatar,
+      bio: newProfile.bio,
+      website: newProfile.website,
+      socials: newProfile.socials,
+      username: newProfile.username.toLowerCase().trim(), 
+    });
 
-    if (showToast) {
-      const el = document.createElement("div");
-      el.textContent = "Profile saved";
-      el.className = "fixed bottom-6 right-6 bg-indigo-600 text-white px-5 py-2.5 rounded-xl z-[9999] shadow-2xl font-bold animate-in slide-in-from-bottom-2";
-      document.body.appendChild(el);
-      setTimeout(() => el.remove(), 1400);
+    if (response.success) {
+      // 2. If the username changed, redirect to the NEW URL
+      // This is the most important step to prevent "reverting"
+      if (newProfile.username !== routeUsername) {
+        window.location.href = `/u/${newProfile.username}`;
+        return; 
+      }
+
+      // 3. Otherwise, just update local state
+      setProfile(newProfile);
+
+      if (showToast) {
+        const el = document.createElement("div");
+        el.textContent = "Database Updated";
+        el.className = "fixed bottom-6 right-6 bg-indigo-600 text-white px-5 py-2.5 rounded-xl z-[9999] shadow-2xl font-bold animate-in slide-in-from-bottom-2";
+        document.body.appendChild(el);
+        setTimeout(() => el.remove(), 1400);
+      }
     }
+  } catch (e) { 
+    console.error("Update failed:", e);
+    alert(e.message); // Show the "Username taken" error if it happens
   }
+}
 
   function handleFollow() {
     if (isOwner) return;
-    const nextFollowingState = !isFollowing;
-    setIsFollowing(nextFollowingState);
-    const newStats = {
-      ...profile.stats,
-      followers: nextFollowingState 
-        ? (profile.stats.followers || 0) + 1 
-        : Math.max(0, (profile.stats.followers || 0) - 1)
-    };
-    saveProfile({ ...profile, stats: newStats });
+    setIsFollowing(!isFollowing);
   }
 
   function updateSocial(provider, url) {
@@ -367,42 +473,69 @@ export default function UserProfilePage() {
     });
   }
 
-  function saveSection() {
+  async function saveSection() {
+    if (!isOwner) return;
+
     const key = editingSection.key;
     const index = editingSection.index;
-    const newItem = {
+    
+    // Check if we are editing an existing item (it will have an 'id' from the DB)
+    const existingId = index !== -1 ? profile.sections[key][index].id : null;
+
+    const itemData = {
+      id: existingId,
+      key: key,
       title: sectionForm.title,
       description: sectionForm.description,
       link: sectionForm.link,
       tags: sectionForm.tags.split(",").map((t) => t.trim()).filter(Boolean),
-      createdAt: new Date().toISOString(),
     };
 
-    const copy = { ...profile };
-    const arr = copy.sections[key] ? [...copy.sections[key]] : [];
-    if (index === -1) arr.unshift(newItem);
-    else arr[index] = { ...arr[index], ...newItem };
-
-    copy.sections[key] = arr;
-    saveProfile(copy, true);
-    setEditingSection(null);
-    setSectionForm({ title: "", description: "", link: "", tags: "" });
+    try {
+      await saveSectionItem(clerkUser.id, routeUsername, itemData);
+      
+      // Refresh local state by re-fetching
+      const updated = await getUserProfile(routeUsername);
+      setProfile(updated);
+      
+      setEditingSection(null);
+      setSectionForm({ title: "", description: "", link: "", tags: "" });
+      
+      // Show toast
+      const el = document.createElement("div");
+      el.textContent = "Section Updated";
+      el.className = "fixed bottom-6 right-6 bg-indigo-600 text-white px-5 py-2.5 rounded-xl z-[9999] shadow-2xl font-bold animate-in slide-in-from-bottom-2";
+      document.body.appendChild(el);
+      setTimeout(() => el.remove(), 1400);
+    } catch (e) {
+      console.error("Save section failed", e);
+    }
   }
 
-  function deleteSectionItem(key, index) {
-    if (!confirm("Delete this item?")) return;
-    const copy = { ...profile };
-    copy.sections[key] = copy.sections[key].filter((_, i) => i !== index);
-    saveProfile(copy, true);
+  async function deleteSectionItem(key, index) {
+    if (!isOwner || !confirm("Delete this item permanently?")) return;
+    
+    const item = profile.sections[key][index];
+
+    try {
+      await deleteSectionItemAction(item.id, routeUsername);
+      
+      // Refresh local state
+      const updated = await getUserProfile(routeUsername);
+      setProfile(updated);
+    } catch (e) {
+      console.error("Delete failed", e);
+    }
   }
+
+  if (loading) return <div className="min-h-screen bg-[var(--bg-body)] flex items-center justify-center text-white font-black">FETCHING FROM NEONDB...</div>;
+  if (!profile) return <div className="min-h-screen bg-[var(--bg-body)] flex items-center justify-center text-white">PROFILE NOT FOUND</div>;
 
   return (
     <div className={THEME_BG}>
-      {/* Background Glow */}
       <div className="absolute inset-0 bg-[var(--hero-glow)] blur-[120px] opacity-20 pointer-events-none" />
       
       <div className="max-w-7xl mx-auto px-4 py-8 md:py-16 relative z-10">
-        {/* Header Section */}
         <header className="relative rounded-[3rem] p-8 md:p-12 border border-[var(--border-color)] bg-[var(--card-bg)] backdrop-blur-2xl overflow-hidden shadow-2xl">
           <div className="relative flex flex-col lg:flex-row gap-12 items-center lg:items-start text-center lg:text-left">
             <img src={profile.avatar} alt={profile.displayName} className="w-32 h-32 md:w-44 md:h-44 rounded-[2.5rem] object-cover border-4 border-[var(--border-muted)] shadow-2xl shrink-0" />
@@ -443,7 +576,6 @@ export default function UserProfilePage() {
               </div>
             </div>
             
-            {/* Stats & Socials Grid */}
             <div className="w-full lg:w-[400px] shrink-0 space-y-6">
               <div className="bg-[var(--nav-hover-bg)] p-8 rounded-[2.5rem] border border-[var(--border-muted)] backdrop-blur-md shadow-inner">
                 <div className="grid grid-cols-3 gap-3 mb-8">
@@ -494,7 +626,6 @@ export default function UserProfilePage() {
           </div>
         </header>
 
-        {/* Content Layout */}
         <div className="mt-12 grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
           <div className="lg:col-span-8 space-y-10 min-w-0">
             {['openSource', 'projects', 'tutorials', 'articles'].map(key => (
@@ -517,7 +648,6 @@ export default function UserProfilePage() {
               <h3 className="text-xs font-black uppercase tracking-[0.2em] text-[var(--nav-text-muted)] mb-6">About Developer</h3>
               <p className="text-[var(--nav-text-active)] text-sm leading-relaxed font-medium opacity-80">{profile.bio || "This developer hasn't added a detailed bio yet."}</p>
             </div>
-
             <div className="rounded-[2.5rem] p-8 bg-[var(--card-bg)] border border-[var(--border-color)] shadow-xl backdrop-blur-xl overflow-hidden">
               <h3 className="text-xs font-black uppercase tracking-[0.2em] text-[var(--nav-text-muted)] mb-8">Social Connections</h3>
               <div className="space-y-6">
@@ -532,9 +662,6 @@ export default function UserProfilePage() {
                         <div className="text-sm font-bold text-[var(--nav-text-active)] truncate">{v ? "Authenticated" : "Disconnected"}</div>
                       </div>
                     </div>
-                    {isOwner && (
-                      <button onClick={() => { const u = prompt(`Edit ${k}`, v || ""); if(u !== null) updateSocial(k, u); }} className="text-xs font-black text-indigo-500 hover:text-indigo-400 transition-colors uppercase">Edit</button>
-                    )}
                   </div>
                 ))}
               </div>
