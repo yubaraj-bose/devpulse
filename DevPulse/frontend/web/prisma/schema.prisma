@@ -15,6 +15,7 @@ datasource db {
 
 model User {
   id          String   @id // Clerk User ID
+  email       String   @unique
   username    String   @unique
   displayName String
   avatar      String?
@@ -31,7 +32,7 @@ model User {
   posts               Post[]
   comments            Comment[]
   notifications       Notification[] // notifications received (recipient)
-  issuedNotifications Notification[] @relation("issuedNotifications") // notifications issued by this user
+  issuedNotifications Notification[] @relation("issuedNotifications")
   starredPosts        Star[]
   trophies            Trophy[]
 
@@ -46,6 +47,7 @@ model User {
   viewCount Int @default(0)
   starCount Int @default(0)
 }
+
 
 // ==========================================
 // 2. COMMUNITY & FEED

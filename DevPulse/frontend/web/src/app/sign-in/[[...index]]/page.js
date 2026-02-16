@@ -93,7 +93,6 @@ export default function SignInPage() {
             <SignIn
               path="/sign-in"
               signUpUrl="/sign-up"
-              forceRedirectUrl="/dashboard"
               appearance={{
                 elements: {
                   card: "bg-transparent shadow-none border-0 rounded-2xl p-8",

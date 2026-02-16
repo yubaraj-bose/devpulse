@@ -166,11 +166,12 @@ function SectionList({
 
 
 function EditProfileModal({ open, onClose, profile, saveProfile }) {
-  const [local, setLocal] = useState(profile);
+  // ensure local is always an object to avoid null controlled input values
+  const [local, setLocal] = useState(profile || {});
   const [isUploading, setIsUploading] = useState(false);
   
   useEffect(() => { 
-    setLocal(profile); 
+    setLocal(profile || {}); 
   }, [profile, open]);
 
   // Handle file selection and upload
@@ -217,7 +218,7 @@ function EditProfileModal({ open, onClose, profile, saveProfile }) {
             <div className="space-y-2">
               <label className="text-[10px] font-black text-[var(--nav-text-muted)] uppercase tracking-[0.2em]">User ID (Read Only)</label>
               <input 
-                value={local.ownerId || local.id} 
+                value={local?.ownerId ?? local?.id ?? ""} 
                 disabled 
                 className="w-full rounded-2xl px-5 py-4 bg-[var(--nav-hover-bg)] border border-[var(--border-muted)] text-[var(--nav-text-muted)] opacity-60 cursor-not-allowed outline-none font-mono text-xs" 
               />
@@ -225,8 +226,8 @@ function EditProfileModal({ open, onClose, profile, saveProfile }) {
             <div className="space-y-2">
               <label className="text-[10px] font-black text-[var(--nav-text-muted)] uppercase tracking-[0.2em]">Username</label>
               <input 
-                value={local.username} 
-                onChange={(e) => setLocal({ ...local, username: e.target.value.toLowerCase().replace(/\s+/g, '') })} 
+                value={local?.username ?? ""} 
+                onChange={(e) => setLocal({ ...local, username: (e.target.value || "").toLowerCase().replace(/\s+/g, '') })} 
                 placeholder="yubarajbose"
                 className="w-full rounded-2xl px-5 py-4 bg-[var(--nav-hover-bg)] border border-[var(--border-muted)] text-[var(--nav-text-active)] focus:border-indigo-500 outline-none transition-all font-bold" 
               />
@@ -237,14 +238,14 @@ function EditProfileModal({ open, onClose, profile, saveProfile }) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
             <div className="space-y-2">
               <label className="text-[10px] font-black text-[var(--nav-text-muted)] uppercase tracking-[0.2em]">Display name</label>
-              <input value={local.displayName} onChange={(e) => setLocal({ ...local, displayName: e.target.value })} className="w-full rounded-2xl px-5 py-4 bg-[var(--nav-hover-bg)] border border-[var(--border-muted)] text-[var(--nav-text-active)] focus:border-indigo-500 outline-none transition-all" />
+              <input value={local?.displayName ?? ""} onChange={(e) => setLocal({ ...local, displayName: e.target.value })} className="w-full rounded-2xl px-5 py-4 bg-[var(--nav-hover-bg)] border border-[var(--border-muted)] text-[var(--nav-text-active)] focus:border-indigo-500 outline-none transition-all" />
             </div>
             
             <div className="space-y-2">
               <label className="text-[10px] font-black text-[var(--nav-text-muted)] uppercase tracking-[0.2em]">Profile Picture</label>
               <div className="flex items-center gap-4 bg-[var(--nav-hover-bg)] p-3 rounded-2xl border border-[var(--border-muted)]">
                 <div className="relative shrink-0">
-                   <img src={local.avatar} alt="Avatar Preview" className={`w-14 h-14 rounded-xl object-cover border border-[var(--border-color)] ${isUploading ? 'opacity-30' : 'opacity-100'}`} />
+                   <img src={local?.avatar ?? ""} alt="Avatar Preview" className={`w-14 h-14 rounded-xl object-cover border border-[var(--border-color)] ${isUploading ? 'opacity-30' : 'opacity-100'}`} />
                    {isUploading && (
                      <div className="absolute inset-0 flex items-center justify-center">
                         <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
@@ -273,12 +274,12 @@ function EditProfileModal({ open, onClose, profile, saveProfile }) {
 
           <div className="space-y-2">
             <label className="text-[10px] font-black text-[var(--nav-text-muted)] uppercase tracking-[0.2em]">Bio</label>
-            <textarea value={local.bio} onChange={(e) => setLocal({ ...local, bio: e.target.value })} rows={3} className="w-full rounded-2xl px-5 py-4 bg-[var(--nav-hover-bg)] border border-[var(--border-muted)] text-[var(--nav-text-active)] focus:border-indigo-500 outline-none transition-all resize-none" placeholder="Tell your story..." />
+            <textarea value={local?.bio ?? ""} onChange={(e) => setLocal({ ...local, bio: e.target.value })} rows={3} className="w-full rounded-2xl px-5 py-4 bg-[var(--nav-hover-bg)] border border-[var(--border-muted)] text-[var(--nav-text-active)] focus:border-indigo-500 outline-none transition-all resize-none" placeholder="Tell your story..." />
           </div>
           
           <div className="space-y-2">
             <label className="text-[10px] font-black text-[var(--nav-text-muted)] uppercase tracking-[0.2em]">Website</label>
-            <input value={local.website||""} onChange={(e) => setLocal({ ...local, website: e.target.value })} className="w-full rounded-2xl px-5 py-4 bg-[var(--nav-hover-bg)] border border-[var(--border-muted)] text-[var(--nav-text-active)] focus:border-indigo-500 outline-none transition-all" placeholder="https://yourportfolio.com" />
+            <input value={local?.website ?? ""} onChange={(e) => setLocal({ ...local, website: e.target.value })} className="w-full rounded-2xl px-5 py-4 bg-[var(--nav-hover-bg)] border border-[var(--border-muted)] text-[var(--nav-text-active)] focus:border-indigo-500 outline-none transition-all" placeholder="https://yourportfolio.com" />
           </div>
 
           <div className="space-y-4">
@@ -290,8 +291,8 @@ function EditProfileModal({ open, onClose, profile, saveProfile }) {
                       <IconForSocial provider={s} />
                   </div>
                   <input 
-                    value={local.socials[s]} 
-                    onChange={(e) => setLocal({ ...local, socials: { ...local.socials, [s]: e.target.value } })} 
+                    value={local?.socials?.[s] ?? ""} 
+                    onChange={(e) => setLocal(prev => ({ ...prev, socials: { ...(prev?.socials || {}), [s]: e.target.value } }))} 
                     placeholder={`${s.charAt(0).toUpperCase() + s.slice(1)} URL`} 
                     className="w-full rounded-2xl pl-14 pr-5 py-4 bg-[var(--nav-hover-bg)] border border-[var(--border-muted)] text-sm text-[var(--nav-text-active)] focus:border-indigo-500 outline-none transition-all" 
                   />

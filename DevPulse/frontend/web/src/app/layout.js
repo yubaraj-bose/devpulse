@@ -51,10 +51,7 @@ export default async function RootLayout({ children }) {
         className={`${geistSans.variable} ${geistMono.variable} antialiased transition-colors duration-300`}
       >
         <ThemeProvider>
-          <ClerkProvider
-            afterSignInUrl="/dashboard"
-            afterSignUpUrl="/dashboard"
-          >
+          <ClerkProvider>
             {/* 3. Pass dbUser to NavBarClient so it uses the Cloudinary link */}
             <NavBarClient dbUser={dbUser} />
             {children}
