@@ -1,5 +1,6 @@
 "use server";
 
+import crypto from "crypto";
 import { v2 as cloudinary } from "cloudinary";
 import prisma from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
@@ -10,7 +11,7 @@ import { clerkClient } from "@clerk/nextjs/server";
  * - Handles Clerk (v4/v5) differences
  * - Idempotent create (upsert)
  * - Safe selective updates
- * - Cloudinary upload (guarded)
+ * - Cloudinary signature generator for direct client uploads (signed)
  */
 
 const SECTION_TYPE_MAP = {
@@ -127,15 +128,17 @@ function extractClerkUserFields(clerkData = {}) {
    ----------------------- */
 function isValidEmail(email) {
   if (!email || typeof email !== "string") return false;
-  // Very small, permissive regex; use a stricter one if you want
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 }
 
 function sanitizeUsername(raw) {
   if (!raw || typeof raw !== "string") return null;
   const s = raw.trim().toLowerCase();
-  // allow a-z0-9, hyphen, underscore; collapse multiple hyphens/underscores
-  return s.replace(/[^a-z0-9-_]/g, "-").replace(/-+/g, "-").replace(/^[-_]+|[-_]+$/g, "");
+  return s
+    .replace(/[^a-z0-9-_]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/_+/g, "_")
+    .replace(/^[-_]+|[-_]+$/g, "");
 }
 
 /* -----------------------
@@ -163,11 +166,8 @@ export async function createDatabaseUser(clerkData) {
         username: sanitizedUsername,
         displayName: `${firstName || ""} ${lastName || ""}`.trim() || "New Dev",
         avatar: imageUrl || null,
-        socials: { create: {} },
-        settings: { create: {} },
       },
       update: {
-        // keep idempotent: update sensible fields from Clerk initial payload
         email: normalizedEmail || undefined,
         avatar: imageUrl || undefined,
         username: sanitizedUsername || undefined,
@@ -197,19 +197,20 @@ export async function getUserProfile(identifier) {
     });
     if (!user) return null;
 
+    const sec = user.sections || [];
+
     return {
       ...user,
-      // keep email available server-side; hide it in public responses at your route-level if desired
       email: user.email ?? null,
       ownerId: user.id,
       sections: {
-        openSource: user.sections.filter((s) => s.type === "OPEN_SOURCE"),
-        projects: user.sections.filter((s) => s.type === "PROJECT"),
-        tutorials: user.sections.filter((s) => s.type === "TUTORIAL"),
-        articles: user.sections.filter((s) => s.type === "ARTICLE"),
+        openSource: sec.filter((s) => s.type === "OPEN_SOURCE"),
+        projects: sec.filter((s) => s.type === "PROJECT"),
+        tutorials: sec.filter((s) => s.type === "TUTORIAL"),
+        articles: sec.filter((s) => s.type === "ARTICLE"),
       },
       stats: {
-        posts: user.sections.length,
+        posts: sec.length,
         stars: 0,
         views: 0,
         followers: 0,
@@ -259,27 +260,23 @@ export async function updateProfile(userId, data) {
       if (!isValidEmail(normalizedEmail)) {
         throw new Error("Invalid email format");
       }
-      // NOTE: production recommendation — change email in Clerk first, then sync to DB
       payload.email = normalizedEmail;
-      // optional: if you maintain an emailVerified flag, set it false here and wait for verification webhook
-      // check existence of column before updating it (defensive)
       try {
         const colCheck = await prisma.$queryRaw`SELECT 1 FROM information_schema.columns WHERE table_name = 'User' AND column_name = 'emailVerified'`;
         if (Array.isArray(colCheck) && colCheck.length > 0) {
-          // emailVerified column exists; mark false on manual change
           payload.emailVerified = false;
         }
       } catch (e) {
-        // ignore if the check fails; do not block update
+        // ignore check
       }
     }
 
-    await prisma.user.update({
+    const updatedUser = await prisma.user.update({
       where: { id: userId },
       data: payload,
     });
 
-    if (payload.username) revalidatePath(`/u/${payload.username}`);
+    if (updatedUser.username) revalidatePath(`/u/${updatedUser.username}`);
     return { success: true };
   } catch (error) {
     console.error("Profile Update Error:", error);
@@ -349,32 +346,41 @@ export async function deleteSectionItemAction(itemId, username) {
 }
 
 /* -----------------------
-   Cloudinary upload (guarded)
+   Cloudinary signature generator
    ----------------------- */
-if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
-  cloudinary.config({
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET,
-  });
-} else {
-  // Keep it silent; attempts to upload will still throw with a clear message.
-  console.warn("Cloudinary credentials missing; uploadImageAction will error until configured.");
-}
+export async function createCloudinaryUploadSignature({ folder = "devpulse_avatars" } = {}) {
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+  const apiKey = process.env.CLOUDINARY_API_KEY;
+  const apiSecret = process.env.CLOUDINARY_API_SECRET;
 
-export async function uploadImageAction(base64Image) {
-  if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+  if (!cloudName || !apiKey || !apiSecret) {
     throw new Error("Cloudinary credentials are not configured on the server.");
   }
 
-  try {
-    const uploadResponse = await cloudinary.uploader.upload(base64Image, {
-      folder: "devpulse_avatars",
-      transformation: [{ width: 400, height: 400, crop: "fill", gravity: "face" }],
-    });
-    return uploadResponse.secure_url;
-  } catch (error) {
-    console.error("Cloudinary Upload Error:", error);
-    throw new Error("Failed to upload image");
-  }
+  const timestamp = Math.floor(Date.now() / 1000);
+  
+  // FIXED: Cloudinary requires params in alphabetical order for signing
+  const paramsToSign = {
+    folder,
+    timestamp
+  };
+
+  const sortedParams = Object.keys(paramsToSign)
+    .sort()
+    .map(key => `${key}=${paramsToSign[key]}`)
+    .join("&");
+
+  const signature = crypto
+    .createHash("sha1")
+    .update(sortedParams + apiSecret)
+    .digest("hex");
+
+  return {
+    signature,
+    apiKey,
+    timestamp,
+    cloudName,
+    uploadUrl: `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+    folder,
+  };
 }
