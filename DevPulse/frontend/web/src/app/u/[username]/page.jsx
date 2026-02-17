@@ -1,5 +1,4 @@
 "use client";
-import { uploadImageAction } from "@/lib/actions/user.actions";
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { useUser } from "@clerk/nextjs";
@@ -25,9 +24,8 @@ import {
   deleteSectionItemAction 
 } from "@/lib/actions/user.actions";
 
-
 /**
- * DevPulse Profile Page - Fully Integrated with NeonDB
+ * DevPulse Profile Page - Integrated with NeonDB and Cloudinary
  */
 
 const THEME_BG =
@@ -124,7 +122,7 @@ function SectionList({
         ) : (
           items.map((it, i) => (
             <article
-              key={i}
+              key={it.id || i}
               className="rounded-2xl p-5 bg-[var(--nav-hover-bg)] border border-[var(--border-muted)] flex justify-between items-start gap-4 transition-all hover:bg-[var(--nav-hover-bg-heavy)] hover:border-[var(--border-color)]"
             >
               <div className="min-w-0 flex-1">
@@ -142,7 +140,9 @@ function SectionList({
                       View Project
                     </a>
                   )}
-                  <span className="bg-[var(--card-bg)] text-[var(--nav-text-muted)] px-3 py-1 rounded-lg border border-[var(--border-muted)]">{new Date(it.createdAt).toLocaleDateString()}</span>
+                  <span className="bg-[var(--card-bg)] text-[var(--nav-text-muted)] px-3 py-1 rounded-lg border border-[var(--border-muted)]">
+                    {new Date(it.createdAt || Date.now()).toLocaleDateString()}
+                  </span>
                 </div>
               </div>
               {isOwner && (
@@ -163,42 +163,66 @@ function SectionList({
   );
 }
 
-
-
 function EditProfileModal({ open, onClose, profile, saveProfile }) {
-  // ensure local is always an object to avoid null controlled input values
   const [local, setLocal] = useState(profile || {});
   const [isUploading, setIsUploading] = useState(false);
   
   useEffect(() => { 
-    setLocal(profile || {}); 
+    if (open) setLocal(profile || {}); 
   }, [profile, open]);
 
-  // Handle file selection and upload
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Optional: Basic size check (e.g., 5MB)
     if (file.size > 5 * 1024 * 1024) {
       alert("File is too large. Please select an image under 5MB.");
       return;
     }
 
     setIsUploading(true);
-    const reader = new FileReader();
 
-    reader.onloadend = async () => {
-      try {
-        const imageUrl = await uploadImageAction(reader.result);
-        setLocal(prev => ({ ...prev, avatar: imageUrl }));
-      } catch (err) {
-        alert("Upload failed. Please try again.");
-      } finally {
-        setIsUploading(false);
+    try {
+      // 1) Get signature from server
+      const signRes = await fetch("/api/cloudinary-sign");
+      if (!signRes.ok) {
+        const text = await signRes.text();
+        throw new Error("Failed to obtain upload signature: " + text);
       }
-    };
-    reader.readAsDataURL(file);
+      
+      const { signature, apiKey, timestamp, uploadUrl, folder } = await signRes.json();
+
+      if (!uploadUrl) {
+        throw new Error("Server did not return a valid Cloudinary upload URL.");
+      }
+
+      // 2) Upload file directly to Cloudinary
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("api_key", apiKey);
+      formData.append("timestamp", timestamp);
+      formData.append("signature", signature);
+      formData.append("folder", folder);
+
+      const uploadRes = await fetch(uploadUrl, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!uploadRes.ok) {
+        const body = await uploadRes.text();
+        // This is where you were seeing HTML because uploadUrl was likely hitting a 404 route
+        throw new Error("Cloudinary upload failed: " + body);
+      }
+
+      const uploadData = await uploadRes.json();
+      setLocal(prev => ({ ...prev, avatar: uploadData.secure_url }));
+    } catch (err) {
+      console.error("Upload failed:", err);
+      alert(err.message || "Upload failed. Please try again.");
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   if (!open) return null;
@@ -213,7 +237,6 @@ function EditProfileModal({ open, onClose, profile, saveProfile }) {
         </div>
         
         <div className="p-8 overflow-y-auto space-y-8">
-          {/* Identity Section */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
               <label className="text-[10px] font-black text-[var(--nav-text-muted)] uppercase tracking-[0.2em]">User ID (Read Only)</label>
@@ -227,14 +250,13 @@ function EditProfileModal({ open, onClose, profile, saveProfile }) {
               <label className="text-[10px] font-black text-[var(--nav-text-muted)] uppercase tracking-[0.2em]">Username</label>
               <input 
                 value={local?.username ?? ""} 
-                onChange={(e) => setLocal({ ...local, username: (e.target.value || "").toLowerCase().replace(/\s+/g, '') })} 
+                onChange={(e) => setLocal({ ...local, username: (e.target.value || "").toLowerCase().replace(/[^a-z0-9-_]/g, '') })} 
                 placeholder="yubarajbose"
                 className="w-full rounded-2xl px-5 py-4 bg-[var(--nav-hover-bg)] border border-[var(--border-muted)] text-[var(--nav-text-active)] focus:border-indigo-500 outline-none transition-all font-bold" 
               />
             </div>
           </div>
 
-          {/* New Cloudinary Image Section */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
             <div className="space-y-2">
               <label className="text-[10px] font-black text-[var(--nav-text-muted)] uppercase tracking-[0.2em]">Display name</label>
@@ -360,6 +382,7 @@ export default function UserProfilePage() {
   const { user: clerkUser, isLoaded } = useUser();
   const searchParams = useSearchParams();
   const router = useRouter();
+  
   const [editOpen, setEditOpen] = useState(false);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -375,74 +398,71 @@ export default function UserProfilePage() {
 
   const isOwner = useMemo(() => {
     if (!isLoaded || !clerkUser || !profile) return false;
-    return profile.username === clerkUser.username || profile.ownerId === clerkUser.id;
+    return profile.username === clerkUser.username || profile.id === clerkUser.id;
   }, [isLoaded, clerkUser, profile]);
-useEffect(() => {
-    // 1. Check if the URL has ?edit=true
-    const editRequested = searchParams.get('edit') === 'true';
 
-    // 2. Only open if the user is the owner and data has finished loading
+  useEffect(() => {
+    const editRequested = searchParams.get('edit') === 'true';
     if (editRequested && isOwner && !loading) {
       setEditOpen(true);
-
-      // 3. Clean the URL (remove ?edit=true) so it doesn't reopen on refresh
       const cleanPath = window.location.pathname;
       router.replace(cleanPath, { scroll: false });
     }
   }, [searchParams, isOwner, loading, router]);
-  // Load from database
+
   useEffect(() => {
     async function loadData() {
       setLoading(true);
-      const dbData = await getUserProfile(routeUsername);
-      if (dbData) {
-        setProfile(dbData);
-      } else if (isLoaded && clerkUser && routeUsername === (clerkUser.username || clerkUser.id)) {
-        setProfile(makeDefaultProfile(clerkUser, routeUsername));
+      try {
+        const dbData = await getUserProfile(routeUsername);
+        if (dbData) {
+          setProfile(dbData);
+        } else if (isLoaded && clerkUser && routeUsername === (clerkUser.username || clerkUser.id)) {
+          setProfile(makeDefaultProfile(clerkUser, routeUsername));
+        }
+      } catch (err) {
+        console.error("Profile load error", err);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     }
     loadData();
   }, [routeUsername, isLoaded, clerkUser]);
 
   async function saveProfile(newProfile, showToast = false) {
-  if (!isOwner) return;
+    if (!isOwner) return;
 
-  try {
-    // 1. Call the server action and wait for success
-    const response = await updateProfile(clerkUser.id, {
-      displayName: newProfile.displayName,
-      avatar: newProfile.avatar,
-      bio: newProfile.bio,
-      website: newProfile.website,
-      socials: newProfile.socials,
-      username: newProfile.username.toLowerCase().trim(), 
-    });
+    try {
+      const response = await updateProfile(clerkUser.id, {
+        displayName: newProfile.displayName,
+        avatar: newProfile.avatar,
+        bio: newProfile.bio,
+        website: newProfile.website,
+        socials: newProfile.socials,
+        username: newProfile.username.toLowerCase().trim(), 
+      });
 
-    if (response.success) {
-      // 2. If the username changed, redirect to the NEW URL
-      // This is the most important step to prevent "reverting"
-      if (newProfile.username !== routeUsername) {
-        window.location.href = `/u/${newProfile.username}`;
-        return; 
+      if (response.success) {
+        if (newProfile.username !== routeUsername) {
+          window.location.href = `/u/${newProfile.username}`;
+          return; 
+        }
+
+        setProfile(newProfile);
+
+        if (showToast) {
+          const el = document.createElement("div");
+          el.textContent = "Profile Updated";
+          el.className = "fixed bottom-6 right-6 bg-indigo-600 text-white px-5 py-2.5 rounded-xl z-[9999] shadow-2xl font-bold animate-in slide-in-from-bottom-2";
+          document.body.appendChild(el);
+          setTimeout(() => el.remove(), 1400);
+        }
       }
-
-      // 3. Otherwise, just update local state
-      setProfile(newProfile);
-
-      if (showToast) {
-        const el = document.createElement("div");
-        el.textContent = "Database Updated";
-        el.className = "fixed bottom-6 right-6 bg-indigo-600 text-white px-5 py-2.5 rounded-xl z-[9999] shadow-2xl font-bold animate-in slide-in-from-bottom-2";
-        document.body.appendChild(el);
-        setTimeout(() => el.remove(), 1400);
-      }
+    } catch (e) { 
+      console.error("Update failed:", e);
+      alert(e.message);
     }
-  } catch (e) { 
-    console.error("Update failed:", e);
-    alert(e.message); // Show the "Username taken" error if it happens
   }
-}
 
   function handleFollow() {
     if (isOwner) return;
@@ -468,7 +488,7 @@ useEffect(() => {
     setSectionForm({
       title: item.title,
       description: item.description,
-      link: item.link,
+      link: item.link || "",
       tags: (item.tags || []).join(", "),
     });
   }
@@ -478,8 +498,6 @@ useEffect(() => {
 
     const key = editingSection.key;
     const index = editingSection.index;
-    
-    // Check if we are editing an existing item (it will have an 'id' from the DB)
     const existingId = index !== -1 ? profile.sections[key][index].id : null;
 
     const itemData = {
@@ -493,17 +511,14 @@ useEffect(() => {
 
     try {
       await saveSectionItem(clerkUser.id, routeUsername, itemData);
-      
-      // Refresh local state by re-fetching
       const updated = await getUserProfile(routeUsername);
       setProfile(updated);
       
       setEditingSection(null);
       setSectionForm({ title: "", description: "", link: "", tags: "" });
       
-      // Show toast
       const el = document.createElement("div");
-      el.textContent = "Section Updated";
+      el.textContent = "Section Saved";
       el.className = "fixed bottom-6 right-6 bg-indigo-600 text-white px-5 py-2.5 rounded-xl z-[9999] shadow-2xl font-bold animate-in slide-in-from-bottom-2";
       document.body.appendChild(el);
       setTimeout(() => el.remove(), 1400);
@@ -514,13 +529,9 @@ useEffect(() => {
 
   async function deleteSectionItem(key, index) {
     if (!isOwner || !confirm("Delete this item permanently?")) return;
-    
     const item = profile.sections[key][index];
-
     try {
       await deleteSectionItemAction(item.id, routeUsername);
-      
-      // Refresh local state
       const updated = await getUserProfile(routeUsername);
       setProfile(updated);
     } catch (e) {
@@ -528,8 +539,8 @@ useEffect(() => {
     }
   }
 
-  if (loading) return <div className="min-h-screen bg-[var(--bg-body)] flex items-center justify-center text-white font-black">FETCHING FROM NEONDB...</div>;
-  if (!profile) return <div className="min-h-screen bg-[var(--bg-body)] flex items-center justify-center text-white">PROFILE NOT FOUND</div>;
+  if (loading) return <div className="min-h-screen bg-[var(--bg-body)] flex items-center justify-center text-white font-black">SYNCHRONIZING...</div>;
+  if (!profile) return <div className="min-h-screen bg-[var(--bg-body)] flex items-center justify-center text-white font-black">PROFILE NOT FOUND</div>;
 
   return (
     <div className={THEME_BG}>
@@ -580,12 +591,12 @@ useEffect(() => {
               <div className="bg-[var(--nav-hover-bg)] p-8 rounded-[2.5rem] border border-[var(--border-muted)] backdrop-blur-md shadow-inner">
                 <div className="grid grid-cols-3 gap-3 mb-8">
                     {[
-                        { val: profile.stats.followers || 0, label: "Fans" },
-                        { val: profile.stats.following || 0, label: "Following" },
-                        { val: profile.stats.posts, label: "Builds" },
-                        { val: profile.stats.stars, label: "Stars" },
-                        { val: profile.stats.views, label: "Views" },
-                        { val: new Date(profile.joinedAt).getFullYear(), label: "Since" }
+                        { val: profile.stats?.followers || 0, label: "Fans" },
+                        { val: profile.stats?.following || 0, label: "Following" },
+                        { val: profile.sections?.openSource.length + profile.sections?.projects.length || 0, label: "Builds" },
+                        { val: profile.stats?.stars || 0, label: "Stars" },
+                        { val: profile.stats?.views || 0, label: "Views" },
+                        { val: new Date(profile.joinedAt || Date.now()).getFullYear(), label: "Since" }
                     ].map((s, idx) => (
                         <div key={idx} className="bg-[var(--card-bg)] border border-[var(--border-muted)] p-3 rounded-2xl text-center shadow-sm">
                         <div className="text-xl font-black text-[var(--nav-text-active)]">{s.val}</div>
@@ -596,7 +607,7 @@ useEffect(() => {
 
                 <div className="grid grid-cols-4 gap-3">
                   {['github', 'youtube', 'linkedin', 'instagram'].map(k => {
-                    const v = profile.socials[k];
+                    const v = profile.socials?.[k];
                     return (
                       <button 
                         key={k} 
@@ -651,19 +662,22 @@ useEffect(() => {
             <div className="rounded-[2.5rem] p-8 bg-[var(--card-bg)] border border-[var(--border-color)] shadow-xl backdrop-blur-xl overflow-hidden">
               <h3 className="text-xs font-black uppercase tracking-[0.2em] text-[var(--nav-text-muted)] mb-8">Social Connections</h3>
               <div className="space-y-6">
-                {Object.entries(profile.socials).map(([k, v]) => (
-                  <div key={k} className="flex items-center justify-between gap-4 group">
-                    <div className="flex items-center gap-4 min-w-0">
-                      <div className={`p-3 rounded-2xl border transition-all shrink-0 ${v ? 'bg-indigo-500/10 border-indigo-500/20 text-indigo-500 shadow-sm' : 'bg-[var(--nav-hover-bg)] border-[var(--border-muted)] text-[var(--nav-text-muted)] opacity-50'}`}>
-                        <IconForSocial provider={k} />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-[10px] font-black uppercase tracking-widest text-[var(--nav-text-muted)]">{k}</div>
-                        <div className="text-sm font-bold text-[var(--nav-text-active)] truncate">{v ? "Authenticated" : "Disconnected"}</div>
+                {['github', 'youtube', 'linkedin', 'instagram'].map(k => {
+                  const v = profile.socials?.[k];
+                  return (
+                    <div key={k} className="flex items-center justify-between gap-4 group">
+                      <div className="flex items-center gap-4 min-w-0">
+                        <div className={`p-3 rounded-2xl border transition-all shrink-0 ${v ? 'bg-indigo-500/10 border-indigo-500/20 text-indigo-500 shadow-sm' : 'bg-[var(--nav-hover-bg)] border-[var(--border-muted)] text-[var(--nav-text-muted)] opacity-50'}`}>
+                          <IconForSocial provider={k} />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-[10px] font-black uppercase tracking-widest text-[var(--nav-text-muted)]">{k}</div>
+                          <div className="text-sm font-bold text-[var(--nav-text-active)] truncate">{v ? "Connected" : "Disconnected"}</div>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </aside>
